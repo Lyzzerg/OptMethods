@@ -49,7 +49,7 @@ def rand_func_generator(intervals: List[float], extremes_num: int = 1, params_nu
     extremes_coeff = [[random.random() for _ in range(params_num)] for _ in range(extremes_num)]
     extremes_coord = [[(int(rand() * accuracy) / accuracy) for _ in range(params_num)] for _ in
                       range(extremes_num)]
-    smoothness_near_extremes_coeff = [[random.random()*10 for _ in range(params_num)] for _ in range(extremes_num)]
+    smoothness_near_extremes_coeff = [[random.random() * 10 for _ in range(params_num)] for _ in range(extremes_num)]
     values = [(1 + i) / accuracy for i in range(extremes_num)]
     res_func = get_test_function_method_min(extremes_num, extremes_coeff, extremes_coord,
                                             smoothness_near_extremes_coeff, values)
@@ -57,47 +57,79 @@ def rand_func_generator(intervals: List[float], extremes_num: int = 1, params_nu
     return res_func, extremes_coord
 
 
-def slice1d(value, func_params: int = 1):
-    res = [value for _ in range(func_params)]
-    return res
+def enumeration(func, X, eps: float = 0.1):
+    R = [(X[i] - X[i - 1]) for i in range(1, len(X))]
+    tmp_max = R[0]
+    res = 0
+    for i in range(1, len(R)):
+        if R[i] >= tmp_max:
+            tmp_max = R[i]
+            res = i
+
+    X.append((X[res] + X[res + 1]) / 2)
+    X.sort()
+    if np.max([(X[i] - X[i - 1]) for i in range(1, len(X))]) > eps:
+        X = enumeration(func, X, eps)
+
+    return X
 
 
-def find_min(func, grid, func_params: int = 1):
+def lipsh_const(func, X, r: float = 2):
+    M = [(abs(func([X[i]]) - func([X[i - 1]])) / (X[i] - X[i - 1])) for i in range(1, len(X))]
+    M = np.max(M)
+    m = 1
+    if M > 0:
+        m = r * M
+    return m
+
+
+def Strongin(func, X, r: float = 2, eps: float = 0.1):
+    L = lipsh_const(func, X, r)
+    R = [L * (X[i] - X[i - 1]) + ((func([X[i]]) + func([X[i - 1]])) ** 2) / (L * (X[i] - X[i - 1])) - 2 * (
+        func([X[i]]) + func([X[i - 1]])) for i in range(1, len(X))]
+    tmp_max = R[0]
+    res = 0
+    for i in range(1, len(R)):
+        if R[i] >= tmp_max:
+            tmp_max = R[i]
+            res = i
+
+    res += 1
+    X.append((X[res] - X[res - 1]) / 2 + (func([X[res]]) - func([X[res - 1]])) / (2 * L))
+    X.sort()
+    if np.min([(X[i] - X[i - 1]) for i in range(1, len(X))]) > eps:
+        X = Strongin(func, X, r)
+    return X
+
+
+def Piavian(func, X, r: float = 2, eps: float = 0.1):
+    L = lipsh_const(func, X, r)
+    R = [0.5 * L * (X[i] - X[i - 1]) - ((func([X[i]]) + func([X[i - 1]])) / 2) for i in range(1, len(X))]
+    tmp_max = R[0]
+    res = 0
+    for i in range(1, len(R)):
+        if R[i] >= tmp_max:
+            tmp_max = R[i]
+            res = i
+
+    res += 1
+    X.append((X[res] - X[res - 1]) / 2 + (func([X[res]]) - func([X[res - 1]])) / (2 * L))
+    X.sort()
+    if np.min([(X[i] - X[i - 1]) for i in range(1, len(X))]) > eps:
+        X = Piavian(func, X, r)
+    return X
+
+
+def find_min(func, grid):
     x_min = grid[0]
-    y_min = func(slice1d(grid[0], func_params))
+    y_min = func([x_min])
     for el in grid:
-        y_temp = func(slice1d(el, func_params))
+        y_temp = func([el])
         if y_temp <= y_min:
             x_min = el
             y_min = y_temp
-
+    print(x_min, y_min)
     return x_min, y_min
-
-
-def enumeration_method(func, steps: List[float], a: float = 0, b: float = 1, n: int = 2,
-                       epsilon: float = 0.001, func_params: int = 1):
-    """
-    :param func_params:
-    :param steps:
-    :param func: function
-    :param a: [A,b]
-    :param b: [a,B]
-    :param n: steps of grid
-    :param epsilon: maximum inaccuracy
-    :return:
-    """
-
-    grid_x = [(a + i * (b - a) / (n + 1)) for i in range(1, n)]
-
-    x_min_, y_min_ = find_min(func, grid_x, func_params)
-
-    steps.append(x_min_)
-    interval = [(x_min_ - (b - a) / (n + 1)), (x_min_ + (b - a) / (n + 1))]
-    inaccuracy = (b - a) / (n + 1)
-    if inaccuracy > epsilon:
-        interval, inaccuracy = enumeration_method(func, steps, interval[0], interval[1], n+1, epsilon, func_params)
-
-    return interval, inaccuracy
 
 
 def input_and_close_window():
@@ -156,28 +188,12 @@ for x in X:
     x_slice = [x for _ in range(1)]
     Y.append(test_func(x_slice))
 
-steps_x = []
-interval_x, inaccuracy_ = enumeration_method(test_func, steps_x, ab_interval[0], ab_interval[1], grid_step, eps)
+xe_min, _ = find_min(test_func, Piavian(test_func, ab_interval, 2, eps))
+step_points = plt.scatter(ab_interval, [test_func([i]) for i in ab_interval], c='b')
 
-steps_y = [test_func([x for _ in range(1)]) for x in steps_x]
-interval_y = [test_func([x for _ in range(1)]) for x in interval_x]
-
-x_min, y_min = find_min(test_func, [i[0] for i in extremes_x])
-
-
-#
-step_points = plt.scatter(steps_x, steps_y, c='b')
-
-last_step_point = plt.scatter(steps_x[len(steps_x)-1], steps_y[len(steps_y)-1], c='k')
-
-extremes_points = plt.scatter(extremes_x, extremes_y, c='y')
-
-extr_point = plt.scatter(x_min, y_min, c='r')
-
-min_point_interval = plt.scatter(interval_x, interval_y, c='g')
-
-plt.axvline(x=ab_interval[0], c='r', linestyle='--')
-plt.axvline(x=ab_interval[1], c='r', linestyle='--')
+plt.axvline(x=xe_min, c='r')
+plt.axvline(x=ab_interval[0], c='b', linestyle='--')
+plt.axvline(x=ab_interval[len(ab_interval) - 1], c='b', linestyle='--')
 
 graph = plt.plot(X, Y)
 grid1 = plt.grid(True)
